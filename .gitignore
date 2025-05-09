@@ -1,0 +1,6 @@
+.docker/
+.idea/
+storage/
+bin/
+env.json
+env.production.json

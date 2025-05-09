@@ -1,0 +1,18 @@
+services:
+  web:
+    container_name: "brdriver-chat"
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /app/docs/brdrive-6c0c3-firebase-adminsdk-fbsvc-513fc7aa8f.json
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./:/app
+      - /app/bin
+    ports:
+      - '4000:4000'
+    networks:
+      - local
+
+networks:
+  local:
