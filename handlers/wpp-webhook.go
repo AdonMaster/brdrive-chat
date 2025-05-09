@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"cloud.google.com/go/firestore"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -8,14 +10,17 @@ import (
 )
 
 type WppWebhook struct {
+	ctx         context.Context
 	VerifyToken string
+	FbClient    *firestore.Client
 }
 
-func NewWppWebHook(token string) *WppWebhook {
-	return &WppWebhook{token}
+func NewWppWebHook(token string, client *firestore.Client) *WppWebhook {
+	return &WppWebhook{context.Background(), token, client}
 }
 
 func (c *WppWebhook) handleVerify(w http.ResponseWriter, r *http.Request) {
+	//
 	mode := r.URL.Query().Get("hub.mode")
 	token := r.URL.Query().Get("hub.verify_token")
 	challenge := r.URL.Query().Get("hub.challenge")
@@ -29,7 +34,8 @@ func (c *WppWebhook) handleVerify(w http.ResponseWriter, r *http.Request) {
 }
 
 // Webhook event handler
-func (*WppWebhook) handleWebhook(w http.ResponseWriter, r *http.Request) {
+func (c *WppWebhook) handleWebhook(w http.ResponseWriter, r *http.Request) {
+	//
 	var body map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		log.Printf("Error decoding webhook payload: %v\n", err)
@@ -38,12 +44,14 @@ func (*WppWebhook) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	log.Printf("Received webhook: %+v\n", body)
+	// save messages
+	docRef, _, err := c.FbClient.Collection("wpp").Add(c.ctx, body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("handleWebhook add error %s", err.Error()), http.StatusBadRequest)
+	}
 
-	// You can extract messages here
-	// Example: body["entry"][0]["changes"][0]["value"]["messages"]
-
-	w.WriteHeader(http.StatusOK)
+	// return
+	fmt.Fprintf(w, "doc: %s", docRef.ID)
 }
 
 func (c *WppWebhook) WppWebHook(w http.ResponseWriter, r *http.Request) {

@@ -1,8 +1,8 @@
-GET http://localhost:4000/test-firestore
+POST {{url}}/test-firestore
 Content-Type: application/json
 
 {
-  
+
 }
 
 ####

@@ -15,21 +15,21 @@ func main() {
 	ctx := context.Background()
 
 	// fb client
-	clientFb, err := firestore.NewClient(ctx, "brdrive-6c0c3")
+	fbClient, err := firestore.NewClient(ctx, "brdrive-6c0c3")
 	if err != nil {
 		log.Fatalf("Failed to create firestore client: %v", err)
 	}
-	defer clientFb.Close()
+	defer fbClient.Close()
 
 	// miscs
 	http.HandleFunc("/", handlers.HomeHandler)
 	http.HandleFunc("/health", handlers.HealthHandler)
 
 	// tests
-	http.HandleFunc("/test-firestore", handlers.TestFirestore(clientFb))
+	http.HandleFunc("/test-firestore", handlers.TestFirestore(fbClient))
 
 	// wpp - webhook
-	wppWebhookHandler := handlers.NewWppWebHook("__c9a68ea80")
+	wppWebhookHandler := handlers.NewWppWebHook("__c9a68ea80", fbClient)
 	http.HandleFunc("/wpp-webhook", wppWebhookHandler.WppWebHook)
 
 	//

@@ -1,0 +1,11 @@
+GET {{url}}/wpp-webhook?hub.mode=subscribe&hub.verify_token=__c9a68ea80&hub.challenge=PERIOD
+
+####
+POST {{url}}/wpp-webhook
+Content-Type: application/json
+
+{
+  "dinossauro": "sicko",
+  "best": 4000
+}
+
