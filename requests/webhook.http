@@ -5,7 +5,7 @@ POST {{url}}/wpp-webhook
 Content-Type: application/json
 
 {
-  "dinossauro": "sicko",
+  "dinossauro": "anti-drug",
   "best": 4000
 }
 
