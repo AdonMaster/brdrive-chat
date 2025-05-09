@@ -9,6 +9,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
+	"time"
 )
 
 type Wpp struct {
@@ -29,11 +31,12 @@ type WebhookMessage struct {
 		Changes []struct {
 			Value struct {
 				Messages []struct {
-					ID        string `json:"id"`
-					Type      string `json:"type,omitempty"`
-					From      string `json:"from,omitempty"`
-					Timestamp string `json:"timestamp,omitempty"`
-					Text      struct {
+					ID            string    `json:"id"`
+					Type          string    `json:"type,omitempty"`
+					From          string    `json:"from,omitempty"`
+					Timestamp     string    `json:"timestamp,omitempty"`
+					TimestampTime time.Time `json:"timestampTime,omitempty"`
+					Text          struct {
 						Body string `json:"body"`
 					} `json:"text,omitempty"`
 				} `json:"messages"`
@@ -121,6 +124,15 @@ func (c *Wpp) saveMessages(body io.ReadCloser) (int, error) {
 		for _, change := range entry.Changes {
 			for _, message := range change.Value.Messages {
 
+				// convert timestamp
+				unixTimestamp, err := strconv.ParseInt(message.Timestamp, 10, 64)
+				if err != nil {
+					message.TimestampTime = time.Now()
+				} else {
+					message.TimestampTime = time.Unix(unixTimestamp, 0)
+				}
+
+				// switch type
 				switch message.Type {
 
 				// text
