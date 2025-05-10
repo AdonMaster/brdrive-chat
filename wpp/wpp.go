@@ -172,13 +172,13 @@ func solveFrom(parent WebhookMessage, msg *Message) {
 		for _, c := range p.Changes {
 			for _, contact := range c.Value.Contacts {
 				if contact.WaId == msg.From {
-					msg.FromName = helpers.StrCoalesce(contact.Profile.Name, "-unknown-")
+					msg.FromName = helpers.StrCoalesce(contact.Profile.Name, contact.WaId)
 					return
 				}
 			}
 		}
 	}
-	msg.FromName = "unknown"
+	msg.FromName = ""
 }
 
 func (c *Wpp) WppWebHook(w http.ResponseWriter, r *http.Request) {
