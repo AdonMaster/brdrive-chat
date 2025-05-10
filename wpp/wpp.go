@@ -47,7 +47,7 @@ type WebhookMessage struct {
 					Profile struct {
 						Name string `json:"name"`
 					} `json:"profile"`
-					WaId string `json:"waId"`
+					WaId string `json:"wa_id"`
 				} `json:"contacts"`
 				Messages []Message `json:"messages"`
 			} `json:"value"`
