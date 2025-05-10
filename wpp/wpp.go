@@ -1,6 +1,7 @@
 package wpp
 
 import (
+	"chat/helpers"
 	"cloud.google.com/go/firestore"
 	"context"
 	"encoding/json"
@@ -26,20 +27,29 @@ type ReadReceipt struct {
 	MessageID        string `json:"message_id"`
 }
 
+type Message struct {
+	ID            string    `json:"id"`
+	Type          string    `json:"type,omitempty"`
+	From          string    `json:"from,omitempty"`
+	FromName      string    `json:"from_name,omitempty"`
+	Timestamp     string    `json:"timestamp,omitempty"`
+	TimestampTime time.Time `json:"timestampTime,omitempty"`
+	Text          struct {
+		Body string `json:"body"`
+	} `json:"text,omitempty"`
+}
+
 type WebhookMessage struct {
 	Entry []struct {
 		Changes []struct {
 			Value struct {
-				Messages []struct {
-					ID            string    `json:"id"`
-					Type          string    `json:"type,omitempty"`
-					From          string    `json:"from,omitempty"`
-					Timestamp     string    `json:"timestamp,omitempty"`
-					TimestampTime time.Time `json:"timestampTime,omitempty"`
-					Text          struct {
-						Body string `json:"body"`
-					} `json:"text,omitempty"`
-				} `json:"messages"`
+				Contacts []struct {
+					Profile struct {
+						Name string `json:"name"`
+					} `json:"profile"`
+					WaId string `json:"waId"`
+				} `json:"contacts"`
+				Messages []Message `json:"messages"`
 			} `json:"value"`
 		} `json:"changes"`
 	} `json:"entry"`
@@ -125,12 +135,8 @@ func (c *Wpp) saveMessages(body io.ReadCloser) (int, error) {
 			for _, message := range change.Value.Messages {
 
 				// convert timestamp
-				unixTimestamp, err := strconv.ParseInt(message.Timestamp, 10, 64)
-				if err != nil {
-					message.TimestampTime = time.Now()
-				} else {
-					message.TimestampTime = time.Unix(unixTimestamp, 0)
-				}
+				solveTimestamp(&message)
+				solveFrom(msg, &message)
 
 				// switch type
 				switch message.Type {
@@ -150,6 +156,29 @@ func (c *Wpp) saveMessages(body io.ReadCloser) (int, error) {
 	}
 
 	return res, nil
+}
+
+func solveTimestamp(message *Message) {
+	unixTimestamp, err := strconv.ParseInt(message.Timestamp, 10, 64)
+	if err != nil {
+		message.TimestampTime = time.Now()
+	} else {
+		message.TimestampTime = time.Unix(unixTimestamp, 0)
+	}
+}
+
+func solveFrom(parent WebhookMessage, msg *Message) {
+	for _, p := range parent.Entry {
+		for _, c := range p.Changes {
+			for _, contact := range c.Value.Contacts {
+				if contact.WaId == msg.From {
+					msg.FromName = helpers.StrCoalesce(contact.Profile.Name, "-unknown-")
+					return
+				}
+			}
+		}
+	}
+	msg.FromName = "unknown"
 }
 
 func (c *Wpp) WppWebHook(w http.ResponseWriter, r *http.Request) {
