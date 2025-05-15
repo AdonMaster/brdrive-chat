@@ -50,8 +50,8 @@ type Payload struct {
 	Payload any    `json:"payload"`
 }
 
-func MakePayload(message string, payload any) Payload {
-	return Payload{
+func MakePayload(message string, payload any) *Payload {
+	return &Payload{
 		Status:  200,
 		Message: message,
 		Payload: payload,

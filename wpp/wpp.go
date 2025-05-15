@@ -313,25 +313,27 @@ func (c *Wpp) WppSend(w http.ResponseWriter, r *http.Request) {
 		MessagingProduct: "whatsapp",
 		To:               data.Phone,
 		Type:             "text",
-		Text:             SendMessageText{""},
+		Text:             SendMessageText{data.Body},
 	}
-	body, err := json.Marshal(msg)
+	_, err := json.Marshal(msg)
 	if err != nil {
 		responses.MakeErrDef(err.Error()).Write(w)
 		return
 	}
-
-	println("checkpoint 1")
 
 	//
 	url := fmt.Sprintf("https://graph.facebook.com/v22.0/611404562060697/messages")
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(body))
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewBufferString(`{
+		"messaging_product": "whatsapp",
+		"to": "5562984389210",
+		"text": {
+			"body": "simple"
+		}
+	}`))
 	if err != nil {
 		responses.MakeErrDef(err.Error()).Write(w)
 		return
 	}
-
-	println("checkpoint 2")
 
 	//
 	req.Header.Set("Authorization", "Bearer "+c.AccessToken)
@@ -344,15 +346,13 @@ func (c *Wpp) WppSend(w http.ResponseWriter, r *http.Request) {
 		responses.MakeErrDef(err.Error()).Write(w)
 		return
 	}
+	defer resp.Body.Close()
+	//
 	responseBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		responses.MakeErrDef(err.Error()).Write(w)
 		return
 	}
-
-	println("checkpoint 3")
-
-	defer resp.Body.Close()
 
 	//
 	if resp.StatusCode >= 400 {
@@ -362,8 +362,6 @@ func (c *Wpp) WppSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	println("checkpoint 4")
-
 	//
-	responses.MakePayload("ok", string(responseBytes))
+	responses.MakePayload("ok", string(responseBytes)).Write(w)
 }
