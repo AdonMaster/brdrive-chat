@@ -4,3 +4,4 @@ storage/
 bin/
 env.json
 env.production.json
+front/

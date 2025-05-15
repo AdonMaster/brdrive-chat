@@ -2,6 +2,7 @@ package main
 
 import (
 	"chat/handlers"
+	"chat/mids"
 	"chat/wpp"
 	"cloud.google.com/go/firestore"
 	"context"
@@ -30,7 +31,11 @@ func main() {
 	http.HandleFunc("/test-firestore", handlers.TestFirestore(fbClient))
 
 	// wpp - webhook
-	http.HandleFunc("/wpp-webhook", wpp.NewWpp(fbClient).WppWebHook)
+	wppInstance := wpp.NewWpp(fbClient)
+	http.HandleFunc("/wpp-webhook", wppInstance.WppWebHook)
+
+	// wpp - handlers
+	http.HandleFunc("/wpp", mids.Method(http.MethodPost, wppInstance.WppSend))
 
 	//
 	println(">> Listening to :4000...")

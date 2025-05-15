@@ -1,7 +1,10 @@
 package wpp
 
 import (
+	"bytes"
 	"chat/helpers"
+	"chat/responses"
+	"chat/validator"
 	"cloud.google.com/go/firestore"
 	"context"
 	"encoding/json"
@@ -15,10 +18,12 @@ import (
 )
 
 type Wpp struct {
-	ctx         context.Context
-	FbClient    *firestore.Client
-	VerifyToken string
-	AccessToken string
+	ctx          context.Context
+	FbClient     *firestore.Client
+	VerifyToken  string
+	AccessToken  string
+	cacheContact map[string]string
+	cacheAccount map[string]string
 }
 
 type ReadReceipt struct {
@@ -27,8 +32,20 @@ type ReadReceipt struct {
 	MessageID        string `json:"message_id"`
 }
 
+type SendMessage struct {
+	MessagingProduct string          `json:"messaging_product"`
+	To               string          `json:"to"`
+	Type             string          `json:"type"`
+	Text             SendMessageText `json:"text"`
+}
+type SendMessageText struct {
+	Body string `json:"body"`
+}
+
 type Message struct {
 	ID            string    `json:"id"`
+	Account       string    `json:"account,omitempty"`
+	AccountNo     string    `json:"account_no,omitempty"`
 	Type          string    `json:"type,omitempty"`
 	From          string    `json:"from,omitempty"`
 	FromName      string    `json:"from_name,omitempty"`
@@ -39,10 +56,27 @@ type Message struct {
 	} `json:"text,omitempty"`
 }
 
+type Contact struct {
+	ID                   string    `json:"id"`
+	Account              string    `json:"account"`
+	Display              string    `json:"display,omitempty"`
+	LastMessage          string    `json:"last_message,omitempty"`
+	LastMessageTimestamp time.Time `json:"last_message_timestamp"`
+}
+
+type Account struct {
+	ID    string `json:"id"`
+	Phone string `json:"phone"`
+}
+
 type WebhookMessage struct {
 	Entry []struct {
 		Changes []struct {
 			Value struct {
+				Metadata struct {
+					DisplayPhoneNumber string `json:"display_phone_number,omitempty"`
+					PhoneNumberId      string `json:"phone_number_id,omitempty"`
+				} `json:"metadata"`
 				Contacts []struct {
 					Profile struct {
 						Name string `json:"name"`
@@ -74,10 +108,13 @@ func NewWpp(client *firestore.Client) *Wpp {
 		client,
 		verifyToken,
 		accessToken,
+		make(map[string]string),
+		make(map[string]string),
 	}
 }
 
 func (c *Wpp) handleVerify(w http.ResponseWriter, r *http.Request) {
+
 	//
 	mode := r.URL.Query().Get("hub.mode")
 	token := r.URL.Query().Get("hub.verify_token")
@@ -94,7 +131,7 @@ func (c *Wpp) handleVerify(w http.ResponseWriter, r *http.Request) {
 func (c *Wpp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 
 	// save messages
-	count, err := c.saveMessages(r.Body)
+	count, err := c.saveBody(r.Body)
 	if err != nil {
 		log.Printf("erro %v", err)
 	}
@@ -103,7 +140,7 @@ func (c *Wpp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "count: %d", count)
 }
 
-func (c *Wpp) saveMessages(body io.ReadCloser) (int, error) {
+func (c *Wpp) saveBody(body io.ReadCloser) (int, error) {
 
 	//
 	res := 0
@@ -111,7 +148,7 @@ func (c *Wpp) saveMessages(body io.ReadCloser) (int, error) {
 	// read json binary
 	jsonData, err := io.ReadAll(body)
 	if err != nil {
-		log.Println("wpp.go@saveMessages: erro ao ler json binary")
+		log.Println("wpp.go@saveBody: erro ao ler json binary")
 		return 0, err
 	}
 	defer body.Close()
@@ -124,7 +161,7 @@ func (c *Wpp) saveMessages(body io.ReadCloser) (int, error) {
 			"err":     err.Error(),
 		})
 		if err2 != nil {
-			log.Printf("wpp.go@saveMessages: Erro ao gravar wpp-unread: %v", err2)
+			log.Printf("wpp.go@saveBody: Erro ao gravar wpp-unread: %v", err2)
 		}
 		return 0, err
 	}
@@ -134,16 +171,20 @@ func (c *Wpp) saveMessages(body io.ReadCloser) (int, error) {
 		for _, change := range entry.Changes {
 			for _, message := range change.Value.Messages {
 
+				// assign
+				message.Account = change.Value.Metadata.PhoneNumberId
+				message.AccountNo = change.Value.Metadata.DisplayPhoneNumber
+
 				// convert timestamp
-				solveTimestamp(&message)
-				solveFrom(msg, &message)
+				c.solveTimestamp(&message)
+				c.solveFrom(msg, &message)
 
 				// switch type
 				switch message.Type {
 
 				// text
 				case "text":
-					_, err := c.FbClient.Collection("wpp-message").Doc(message.ID).Set(c.ctx, message)
+					err := c.saveMessageText(message)
 					if err != nil {
 						return 0, err
 					}
@@ -158,7 +199,72 @@ func (c *Wpp) saveMessages(body io.ReadCloser) (int, error) {
 	return res, nil
 }
 
-func solveTimestamp(message *Message) {
+func (c *Wpp) saveMessageText(message Message) error {
+
+	// message
+	println("==> writing wpp-messages")
+	_, err := c.FbClient.Collection("wpp-messages").Doc(message.ID).Set(c.ctx, message)
+	if err != nil {
+		return err
+	}
+
+	// account
+	accountCached := c.cacheAccount[message.Account]
+	if accountCached != message.AccountNo {
+		println("==> writing wpp-accounts")
+		_, err := c.FbClient.Collection("wpp-accounts").
+			Doc(message.Account).
+			Set(c.ctx, Account{
+				ID:    message.Account,
+				Phone: message.AccountNo,
+			})
+		if err != nil {
+			return err
+		}
+		c.cacheAccount[message.Account] = message.AccountNo
+	}
+
+	// contact
+	contactSaved := false
+	if message.FromName != "" {
+		contactCached := c.cacheContact[message.From]
+		if contactCached != message.FromName {
+			println("==> setting wpp-contacts")
+			_, err = c.FbClient.Collection("wpp-contacts").
+				Doc(message.From).
+				Set(c.ctx, Contact{
+					ID:                   message.From,
+					Account:              message.Account,
+					Display:              message.FromName,
+					LastMessage:          message.Text.Body,
+					LastMessageTimestamp: message.TimestampTime,
+				})
+			if err != nil {
+				return err
+			}
+			c.cacheContact[message.From] = message.FromName
+			contactSaved = true
+		}
+	}
+	if !contactSaved {
+		println("==> updating wpp-contacts")
+		_, err = c.FbClient.Collection("wpp-contacts").
+			Doc(message.From).
+			Set(c.ctx, map[string]interface{}{
+				"id":                     message.From,
+				"last_message":           message.Text.Body,
+				"last_message_timestamp": message.Timestamp,
+			}, firestore.MergeAll)
+		if err != nil {
+			return err
+		}
+	}
+
+	//
+	return nil
+}
+
+func (c *Wpp) solveTimestamp(message *Message) {
 	unixTimestamp, err := strconv.ParseInt(message.Timestamp, 10, 64)
 	if err != nil {
 		message.TimestampTime = time.Now()
@@ -167,12 +273,12 @@ func solveTimestamp(message *Message) {
 	}
 }
 
-func solveFrom(parent WebhookMessage, msg *Message) {
+func (c *Wpp) solveFrom(parent WebhookMessage, msg *Message) {
 	for _, p := range parent.Entry {
-		for _, c := range p.Changes {
-			for _, contact := range c.Value.Contacts {
+		for _, change := range p.Changes {
+			for _, contact := range change.Value.Contacts {
 				if contact.WaId == msg.From {
-					msg.FromName = helpers.StrCoalesce(contact.Profile.Name, contact.WaId)
+					msg.FromName = helpers.StrCoalesce(contact.Profile.Name, c.cacheContact[msg.From])
 					return
 				}
 			}
@@ -189,4 +295,75 @@ func (c *Wpp) WppWebHook(w http.ResponseWriter, r *http.Request) {
 	} else {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func (c *Wpp) WppSend(w http.ResponseWriter, r *http.Request) {
+	//
+	var data struct {
+		Account string `json:"account" v:"required"`
+		Phone   string `json:"phone" v:"required"`
+		Body    string `json:"body" v:"required"`
+	}
+	if !validator.Validate(w, r, &data) {
+		return
+	}
+
+	//
+	msg := SendMessage{
+		MessagingProduct: "whatsapp",
+		To:               data.Phone,
+		Type:             "text",
+		Text:             SendMessageText{""},
+	}
+	body, err := json.Marshal(msg)
+	if err != nil {
+		responses.MakeErrDef(err.Error()).Write(w)
+		return
+	}
+
+	println("checkpoint 1")
+
+	//
+	url := fmt.Sprintf("https://graph.facebook.com/v22.0/611404562060697/messages")
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(body))
+	if err != nil {
+		responses.MakeErrDef(err.Error()).Write(w)
+		return
+	}
+
+	println("checkpoint 2")
+
+	//
+	req.Header.Set("Authorization", "Bearer "+c.AccessToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	//
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		responses.MakeErrDef(err.Error()).Write(w)
+		return
+	}
+	responseBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		responses.MakeErrDef(err.Error()).Write(w)
+		return
+	}
+
+	println("checkpoint 3")
+
+	defer resp.Body.Close()
+
+	//
+	if resp.StatusCode >= 400 {
+		responses.
+			MakeErr(resp.StatusCode, "erro ao enviar", string(responseBytes)).
+			Write(w)
+		return
+	}
+
+	println("checkpoint 4")
+
+	//
+	responses.MakePayload("ok", string(responseBytes))
 }

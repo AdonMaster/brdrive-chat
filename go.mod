@@ -4,7 +4,7 @@ go 1.23.0
 
 require (
 	cloud.google.com/go/firestore v1.18.0
-	google.golang.org/api v0.232.0
+	github.com/thedevsaddam/govalidator v1.9.10
 )
 
 require (
@@ -32,6 +32,7 @@ require (
 	golang.org/x/sys v0.32.0 // indirect
 	golang.org/x/text v0.24.0 // indirect
 	golang.org/x/time v0.11.0 // indirect
+	google.golang.org/api v0.232.0 // indirect
 	google.golang.org/genproto v0.0.0-20241118233622-e639e219e697 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250218202821-56aae31c358a // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250428153025-10db94c68c34 // indirect
